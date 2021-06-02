@@ -52,6 +52,9 @@
 #define user_main_debug(format, ...)
 #define user_main_error(format, ...)
 #endif
+#define abs(x) ((x)>=0?(x):-(x))
+#define max(a,b) ((a) > (b) ? (a) : (b))
+#define min(a,b) ((a) < (b) ? (a) : (b))
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -62,7 +65,12 @@ uint8_t aRxBuffer1[1];      // usart receive buffer
 uint8_t cmdBuffer[UART_RX_BUFFER_SIZE];
 uint8_t cmdPtr = 0;
 uint8_t cmdCompleted = 0;
-
+int16_t pulse_motor[2] = {0};
+uint32_t channel_motor[2] = {TIM_CHANNEL_1, TIM_CHANNEL_2};
+GPIO_TypeDef* motor_sig_port[2][2] = {{MOTOR1_SIG1_GPIO_Port, MOTOR1_SIG2_GPIO_Port},
+																			{MOTOR2_SIG1_GPIO_Port, MOTOR2_SIG2_GPIO_Port}};
+uint16_t motor_sig_pin[2][2] = {{MOTOR1_SIG1_Pin, MOTOR1_SIG2_Pin},
+																{MOTOR2_SIG1_Pin, MOTOR2_SIG2_Pin}};
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -117,7 +125,8 @@ int main(void)
   MX_NVIC_Init();
   /* USER CODE BEGIN 2 */
 	user_main_printf("Welcome to STM32F103!");
-	HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1); // enable PWM channel
+	HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1); // enable PWM1 channel
+	HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2); // enable PWM2 channel
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -128,16 +137,9 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-		
-		HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, GPIO_PIN_RESET);
-		__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 800); // modify pulse
-		HAL_GPIO_WritePin(MOTOR1_OUT1_GPIO_Port, MOTOR1_OUT1_Pin, GPIO_PIN_SET);
-		HAL_GPIO_WritePin(MOTOR1_OUT2_GPIO_Port, MOTOR1_OUT2_Pin, GPIO_PIN_RESET);
-		HAL_Delay(2000);
-		__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 200); // modify pulse
-		HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, GPIO_PIN_SET);
-		__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, 200); // modify pulse
-		HAL_Delay(3000);
+		HAL_Delay(400);
+		HAL_GPIO_TogglePin(LED1_GPIO_Port, LED1_Pin);
+		HAL_Delay(100);
   }
   /* USER CODE END 3 */
 }
@@ -192,6 +194,45 @@ static void MX_NVIC_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+// motor
+void LogicSwitch(uint8_t motor_id, int8_t logic){
+	switch(logic){
+		case 1:{ // xuan kong
+			HAL_GPIO_WritePin(motor_sig_port[motor_id][0], motor_sig_pin[motor_id][0], GPIO_PIN_SET);
+			HAL_GPIO_WritePin(motor_sig_port[motor_id][1], motor_sig_pin[motor_id][1], GPIO_PIN_SET);
+			break;
+		}
+		case 2:{ // zheng zhuan
+			HAL_GPIO_WritePin(motor_sig_port[motor_id][0], motor_sig_pin[motor_id][0], GPIO_PIN_SET);
+			HAL_GPIO_WritePin(motor_sig_port[motor_id][1], motor_sig_pin[motor_id][1], GPIO_PIN_RESET);
+			break;
+		}
+		case 3:{ // fan zhuan
+			HAL_GPIO_WritePin(motor_sig_port[motor_id][0], motor_sig_pin[motor_id][0], GPIO_PIN_RESET);
+			HAL_GPIO_WritePin(motor_sig_port[motor_id][1], motor_sig_pin[motor_id][1], GPIO_PIN_SET);
+			break;
+		}
+		default:{ // sha che
+			HAL_GPIO_WritePin(motor_sig_port[motor_id][0], motor_sig_pin[motor_id][0], GPIO_PIN_RESET);
+			HAL_GPIO_WritePin(motor_sig_port[motor_id][1], motor_sig_pin[motor_id][1], GPIO_PIN_RESET);
+		}
+	}
+}
+void ModifyPulse(uint8_t motor_id, int16_t pulse){
+	pulse = max(50-1000, min(pulse, 1000-50));
+	pulse_motor[motor_id] = pulse;
+	LogicSwitch(motor_id, pulse>0?2:3);
+	user_main_printf("[\thandleCmd]ModifyPulse: %d!", pulse);
+	__HAL_TIM_SET_COMPARE(&htim2, channel_motor[motor_id], abs(pulse)); // modify pulse
+}
+void SpeedUp(uint8_t motor_id){
+	ModifyPulse(motor_id, pulse_motor[motor_id]+50);
+}
+void SlowDown(uint8_t motor_id){
+	ModifyPulse(motor_id, pulse_motor[motor_id]-50);
+}
+
+
 //清空接收缓冲
 void clearCmdBuffer(void)
 {
@@ -199,11 +240,66 @@ void clearCmdBuffer(void)
   cmdBuffer[cmdPtr] = 0;
 }
 void handleCmd(void){
-	user_main_printf("[\thandleCmd]Reveiced: %s!", cmdBuffer);
+	user_main_printf("[\thandleCmd]Handle Cmd: %s!", cmdBuffer);
+	char delim[] = " ";
+	char *cmdseg = strtok((char*)cmdBuffer, delim);
+	if(cmdseg!=NULL){
+		char *idstr = strtok(NULL, delim);
+		if(idstr!=NULL){
+			uint8_t mid = idstr[0] - '1';
+			if(strcmp(cmdseg, "on")==0){
+				user_main_printf("[\thandleCmd]Handle Cmd: on!");
+				LogicSwitch(mid, 1);
+			}
+			if(strcmp(cmdseg, "off")==0){
+				user_main_printf("[\thandleCmd]Handle Cmd: off!");
+				LogicSwitch(mid, 0);
+			}
+			if(strcmp(cmdseg, "up")==0){
+				user_main_printf("[\thandleCmd]Handle Cmd: speed up!");
+				SpeedUp(mid);
+			}
+			if(strcmp(cmdseg, "down")==0){
+				user_main_printf("[\thandleCmd]Handle Cmd: slow down!");
+				SlowDown(mid);
+			}
+		}else{
+			if(strcmp(cmdseg, "stop")==0){
+				user_main_printf("[\thandleCmd]Handle Cmd: stop!");
+				LogicSwitch(0, 1);
+				LogicSwitch(1, 1);
+			}
+			if(strcmp(cmdseg, "start")==0){
+				user_main_printf("[\thandleCmd]Handle Cmd: start!");
+				ModifyPulse(0, 500);
+				ModifyPulse(1, 500);
+			}
+			if(strcmp(cmdseg, "left")==0){
+				user_main_printf("[\thandleCmd]Handle Cmd: left!");
+				ModifyPulse(0, -500);
+				ModifyPulse(1, 500);
+			}
+			if(strcmp(cmdseg, "right")==0){
+				user_main_printf("[\thandleCmd]Handle Cmd: right!");
+				ModifyPulse(0, 500);
+				ModifyPulse(1, -500);
+			}
+		}
+	}
 	clearCmdBuffer();
 }
 void addCmdBuffer(uint8_t data)
 {
+	if(data == '\r' ){
+		return;
+	}
+	//如果为回车键，则开始处理串口数据
+	if(data == '\n'){
+		cmdCompleted = 1;
+		handleCmd();
+		return;
+	}
+	// add cmd
 	if(cmdPtr < (UART_RX_BUFFER_SIZE - 1)){
 		cmdBuffer[cmdPtr] = data;
 		cmdBuffer[cmdPtr + 1]=0x00;
@@ -212,11 +308,7 @@ void addCmdBuffer(uint8_t data)
 	else{
 		cmdBuffer[cmdPtr - 1] = data;
 	}
-	//如果为回车键，则开始处理串口数据
-	if(data == 13 || data == 10){
-		cmdCompleted = 1;
-		handleCmd();
-	}
+	
 }
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)

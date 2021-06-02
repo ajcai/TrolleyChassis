@@ -33,6 +33,7 @@ extern "C" {
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
+#include <string.h>
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/
@@ -60,10 +61,18 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 #define LED1_Pin GPIO_PIN_13
 #define LED1_GPIO_Port GPIOC
-#define MOTOR1_OUT1_Pin GPIO_PIN_3
-#define MOTOR1_OUT1_GPIO_Port GPIOA
-#define MOTOR1_OUT2_Pin GPIO_PIN_4
-#define MOTOR1_OUT2_GPIO_Port GPIOA
+#define MOTOR1_PWM_Pin GPIO_PIN_0
+#define MOTOR1_PWM_GPIO_Port GPIOA
+#define MOTOR2_PWM_Pin GPIO_PIN_1
+#define MOTOR2_PWM_GPIO_Port GPIOA
+#define MOTOR1_SIG1_Pin GPIO_PIN_3
+#define MOTOR1_SIG1_GPIO_Port GPIOA
+#define MOTOR1_SIG2_Pin GPIO_PIN_4
+#define MOTOR1_SIG2_GPIO_Port GPIOA
+#define MOTOR2_SIG1_Pin GPIO_PIN_5
+#define MOTOR2_SIG1_GPIO_Port GPIOA
+#define MOTOR2_SIG2_Pin GPIO_PIN_6
+#define MOTOR2_SIG2_GPIO_Port GPIOA
 #define USART1_TX_Pin GPIO_PIN_9
 #define USART1_TX_GPIO_Port GPIOA
 #define USART1_RX_Pin GPIO_PIN_10

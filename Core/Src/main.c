@@ -36,7 +36,8 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define USER_MAIN_DEBUG
-#define UART_RX_BUFFER_SIZE 256 
+#define COMMAND_BUFFER_SIZE 256 
+#define MOTOR_NUM 2
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -60,17 +61,24 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-uint8_t aTxBuffer[] = "usart send data\r\n";
-uint8_t aRxBuffer1[1];      // usart receive buffer
-uint8_t cmdBuffer[UART_RX_BUFFER_SIZE];
+// usart buffer
+uint8_t cRxBuffer1[1];      // usart1 receive buffer
+uint8_t cRxBuffer2[16];      // usart2 receive buffer
+uint8_t cRxBuffer3[16];      // usart2 receive buffer
+// command buffer
+uint8_t cmdBuffer[COMMAND_BUFFER_SIZE];
 uint8_t cmdPtr = 0;
 uint8_t cmdCompleted = 0;
-int16_t pulse_motor[2] = {0};
-uint32_t channel_motor[2] = {TIM_CHANNEL_1, TIM_CHANNEL_2};
-GPIO_TypeDef* motor_sig_port[2][2] = {{MOTOR1_SIG1_GPIO_Port, MOTOR1_SIG2_GPIO_Port},
-																			{MOTOR2_SIG1_GPIO_Port, MOTOR2_SIG2_GPIO_Port}};
-uint16_t motor_sig_pin[2][2] = {{MOTOR1_SIG1_Pin, MOTOR1_SIG2_Pin},
-																{MOTOR2_SIG1_Pin, MOTOR2_SIG2_Pin}};
+// motor variables
+int16_t pulse_motor[MOTOR_NUM] = {0};
+uint32_t channel_motor[MOTOR_NUM] = {TIM_CHANNEL_1, TIM_CHANNEL_2};
+GPIO_TypeDef* motor_sig_port[MOTOR_NUM][2] = {{MOTOR1_SIG1_GPIO_Port, MOTOR1_SIG2_GPIO_Port},
+																							{MOTOR2_SIG1_GPIO_Port, MOTOR2_SIG2_GPIO_Port}};
+uint16_t motor_sig_pin[MOTOR_NUM][2] = {{MOTOR1_SIG1_Pin, MOTOR1_SIG2_Pin},
+																				{MOTOR2_SIG1_Pin, MOTOR2_SIG2_Pin}};
+// site
+uint8_t target_site = 0;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -120,6 +128,8 @@ int main(void)
   MX_TIM1_Init();
   MX_USART1_UART_Init();
   MX_TIM2_Init();
+  MX_USART2_UART_Init();
+  MX_USART3_UART_Init();
 
   /* Initialize interrupts */
   MX_NVIC_Init();
@@ -127,11 +137,12 @@ int main(void)
 	user_main_printf("Welcome to STM32F103!");
 	HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1); // enable PWM1 channel
 	HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2); // enable PWM2 channel
-  /* USER CODE END 2 */
+	HAL_UART_Receive_IT(&huart1, cRxBuffer1, 1); //enable usart1 reveive
+	HAL_UART_Receive_IT(&huart2, cRxBuffer2, 16); //enable usart2 reveive
+/* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-	HAL_UART_Receive_IT(&huart1, aRxBuffer1, 1); //enable usart reveive
   while (1)
   {
     /* USER CODE END WHILE */
@@ -191,6 +202,12 @@ static void MX_NVIC_Init(void)
   /* USART1_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(USART1_IRQn, 2, 0);
   HAL_NVIC_EnableIRQ(USART1_IRQn);
+  /* USART2_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(USART2_IRQn, 1, 0);
+  HAL_NVIC_EnableIRQ(USART2_IRQn);
+  /* USART3_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(USART3_IRQn, 1, 1);
+  HAL_NVIC_EnableIRQ(USART3_IRQn);
 }
 
 /* USER CODE BEGIN 4 */
@@ -231,6 +248,21 @@ void SpeedUp(uint8_t motor_id){
 void SlowDown(uint8_t motor_id){
 	ModifyPulse(motor_id, pulse_motor[motor_id]-50);
 }
+void MotorHang(){
+	for(uint8_t i=0; i<MOTOR_NUM; ++i){
+		LogicSwitch(i, 1);
+	}
+}
+void MotorOn(){
+	for(uint8_t i=0; i<MOTOR_NUM; ++i){
+		LogicSwitch(i, 2);
+	}
+}
+void MotorOff(){
+	for(uint8_t i=0; i<MOTOR_NUM; ++i){
+		LogicSwitch(i, 0);
+	}
+}
 
 
 //Çå¿Õ½ÓÊÕ»º³å
@@ -266,23 +298,21 @@ void handleCmd(void){
 		}else{
 			if(strcmp(cmdseg, "stop")==0){
 				user_main_printf("[\thandleCmd]Handle Cmd: stop!");
-				LogicSwitch(0, 1);
-				LogicSwitch(1, 1);
+				MotorOff();
 			}
 			if(strcmp(cmdseg, "start")==0){
 				user_main_printf("[\thandleCmd]Handle Cmd: start!");
-				ModifyPulse(0, 500);
-				ModifyPulse(1, 500);
+				MotorOn();
 			}
 			if(strcmp(cmdseg, "left")==0){
 				user_main_printf("[\thandleCmd]Handle Cmd: left!");
-				ModifyPulse(0, -500);
-				ModifyPulse(1, 500);
+				ModifyPulse(0, -200);
+				ModifyPulse(1, 200);
 			}
 			if(strcmp(cmdseg, "right")==0){
 				user_main_printf("[\thandleCmd]Handle Cmd: right!");
-				ModifyPulse(0, 500);
-				ModifyPulse(1, -500);
+				ModifyPulse(0, 200);
+				ModifyPulse(1, -200);
 			}
 		}
 	}
@@ -300,7 +330,7 @@ void addCmdBuffer(uint8_t data)
 		return;
 	}
 	// add cmd
-	if(cmdPtr < (UART_RX_BUFFER_SIZE - 1)){
+	if(cmdPtr < (COMMAND_BUFFER_SIZE - 1)){
 		cmdBuffer[cmdPtr] = data;
 		cmdBuffer[cmdPtr + 1]=0x00;
 		cmdPtr++;
@@ -314,11 +344,28 @@ void addCmdBuffer(uint8_t data)
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
 	if(huart->Instance == USART1){
-		uint8_t data = aRxBuffer1[0];
+		uint8_t data = cRxBuffer1[0];
 		addCmdBuffer(data);
-		HAL_UART_Receive_IT(&huart1, aRxBuffer1, 1);
+		HAL_UART_Receive_IT(&huart1, cRxBuffer1, 1);
+	}
+	if(huart->Instance == USART2){
+		uint8_t card_id = cRxBuffer2[15];
+		user_main_printf("[\thandleNVIC2]: read card %d!", card_id);
+		if(card_id == target_site){
+			MotorOff();
+		}
+		HAL_UART_Receive_IT(&huart2, cRxBuffer2, 16);
 	}
 }
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
+{
+	if(huart == &huart2)
+	{
+		__HAL_UNLOCK(huart);
+		HAL_UART_Receive_IT(&huart2, cRxBuffer2, 16);
+	}
+}
+
 
 /* USER CODE END 4 */
 
